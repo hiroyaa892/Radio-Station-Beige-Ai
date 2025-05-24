@@ -1,0 +1,382 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeigeTunes - Minimalist Radio Station</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Arial', sans-serif;
+      background-color: #f5f5dc; /* Beige background */
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      flex: 1;
+    }
+    nav {
+      background-color: #e6d9b7; /* Light beige nav */
+      padding: 10px 0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+    }
+    nav ul li {
+      margin: 0 20px;
+    }
+    nav ul li a {
+      text-decoration: none;
+      color: #333;
+      font-weight: bold;
+      font-size: 16px;
+    }
+    nav ul li a:hover {
+      color: #8b7d5b;
+    }
+    .player {
+      background-color: #fffaf0; /* Off-white beige */
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      text-align: center;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .player img {
+      width: 150px;
+      height: 150px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+    .controls button {
+      background-color: #d4c4a2;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .controls button:hover {
+      background-color: #8b7d5b;
+      color: #fff;
+    }
+    .equalizer {
+      margin: 20px 0;
+    }
+    .equalizer label {
+      margin-right: 10px;
+    }
+    .ai-commentary {
+      background-color: #fffaf0;
+      padding: 15px;
+      border-radius: 10px;
+      margin: 20px 0;
+    }
+    .search-bar {
+      margin: 20px 0;
+      text-align: center;
+    }
+    .search-bar input {
+      padding: 10px;
+      width: 80%;
+      max-width: 400px;
+      border: 1px solid #d4c4a2;
+      border-radius: 5px;
+      font-size: 16px;
+    }
+    .content-section {
+      display: none;
+      margin-top: 20px;
+    }
+    .content-section.active {
+      display: block;
+    }
+    .playlist, .album, .artist {
+      background-color: #fffaf0;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .auth-forms {
+      max-width: 400px;
+      margin: 20px auto;
+      background-color: #fffaf0;
+      padding: 20px;
+      border-radius: 10px;
+    }
+    .auth-forms input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #d4c4a2;
+      border-radius: 5px;
+    }
+    .auth-forms button {
+      background-color: #d4c4a2;
+      border: none;
+      padding: 10px;
+      width: 100%;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .auth-forms button:hover {
+      background-color: #8b7d5b;
+      color: #fff;
+    }
+    footer {
+      background-color: #e6d9b7;
+      text-align: center;
+      padding: 10px 0;
+      margin-top: auto;
+    }
+    @media (max-width: 600px) {
+      nav ul {
+        flex-direction: column;
+        text-align: center;
+      }
+      nav ul li {
+        margin: 10px 0;
+      }
+      .search-bar input {
+        width: 90%;
+      }
+    }
+  </style>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+  <nav>
+    <ul>
+      <li><a href="#" data-section="home">Home</a></li>
+      <li><a href="#" data-section="search">Search</a></li>
+      <li><a href="#" data-section="albums">Albums</a></li>
+      <li><a href="#" data-section="artists">Artists</a></li>
+      <li><a href="#" data-section="playlists">Playlists</a></li>
+      <li><a href="#" data-section="settings">Settings</a></li>
+      <li><a href="#" data-section="auth">Sign Up / Log In</a></li>
+    </ul>
+  </nav>
+
+  <div class="container">
+    <!-- Home Section -->
+    <div id="home" class="content-section active">
+      <h1>Welcome to BeigeTunes</h1>
+      <div class="player">
+        <h2>Playlist of the Day</h2>
+        <img src="https://via.placeholder.com/150" alt="Album Art">
+        <p id="current-song">Song Title - Artist</p>
+        <div class="controls">
+          <button onclick="playVideo()">Play</button>
+          <button onclick="pauseVideo()">Pause</button>
+          <button onclick="nextSong()">Next</button>
+        </div>
+        <div id="player"></div>
+      </div>
+      <div class="ai-commentary">
+        <h3>AI Commentary</h3>
+        <p id="ai-comment">This track has a vibrant beat perfect for your morning vibe!</p>
+        <button onclick="generateAIComment()">New Comment</button>
+      </div>
+    </div>
+
+    <!-- Search Section -->
+    <div id="search" class="content-section">
+      <h2>Search</h2>
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search songs, albums, artists...">
+      </div>
+      <div id="search-results"></div>
+    </div>
+
+    <!-- Albums Section -->
+    <div id="albums" class="content-section">
+      <h2>Albums</h2>
+      <div class="album">
+        <h3>Album Title</h3>
+        <p>Artist Name</p>
+      </div>
+    </div>
+
+    <!-- Artists Section -->
+    <div id="artists" class="content-section">
+      <h2>Artists</h2>
+      <div class="artist">
+        <h3>Artist Name</h3>
+        <p>Genre: Pop</p>
+      </div>
+    </div>
+
+    <!-- Playlists Section -->
+    <div id="playlists" class="content-section">
+      <h2>Playlists</h2>
+      <div class="playlist">
+        <h3>My Playlist</h3>
+        <p>Song 1, Song 2, Song 3</p>
+      </div>
+    </div>
+
+    <!-- Settings Section -->
+    <div id="settings" class="content-section">
+      <h2>Settings</h2>
+      <div class="equalizer">
+        <h3>Equalizer</h3>
+        <label>Bass: <input type="range" id="bass" min="0" max="10" value="5"></label>
+        <label>Mid: <input type="range" id="mid" min="0" max="10" value="5"></label>
+        <label>Treble: <input type="range" id="treble" min="0" max="10" value="5"></label>
+        <br>
+        <label>Hi-Fi Mode: <input type="checkbox" id="hifi"></label>
+      </div>
+    </div>
+
+    <!-- Sign Up / Log In Section -->
+    <div id="auth" class="content-section">
+      <h2>Sign Up / Log In</h2>
+      <div class="auth-forms">
+        <h3>Sign Up</h3>
+        <input type="text" placeholder="Username">
+        <input type="email" placeholder="Email">
+        <input type="password" placeholder="Password">
+        <button onclick="alert('Sign Up Submitted!')">Sign Up</button>
+        <h3>Log In</h3>
+        <input type="email" placeholder="Email">
+        <input type="password" placeholder="Password">
+        <button onclick="alert('Log In Submitted!')">Log In</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>&copy; 2025 BeigeTunes. All rights reserved.</p>
+  </footer>
+
+  <script>
+    // YouTube Player API
+    let player;
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        height: '0',
+        width: '0',
+        videoId: 'dQw4w9WgXcQ', // Sample YouTube video ID
+        events: {
+          'onReady': onPlayerReady
+        }
+      });
+    }
+
+    function onPlayerReady(event) {
+      // Player ready
+    }
+
+    function playVideo() {
+      player.playVideo();
+    }
+
+    function pauseVideo() {
+      player.pauseVideo();
+    }
+
+    function nextSong() {
+      document.getElementById('current-song').innerText = 'Next Song - Artist';
+      generateAIComment();
+      // In a real app, load next video ID
+    }
+
+    // Equalizer Simulation
+    const bass = document.getElementById('bass');
+    const mid = document.getElementById('mid');
+    const treble = document.getElementById('treble');
+    const hifi = document.getElementById('hifi');
+
+    bass.addEventListener('input', () => console.log('Bass:', bass.value));
+    mid.addEventListener('input', () => console.log('Mid:', mid.value));
+    treble.addEventListener('input', () => console.log('Treble:', treble.value));
+    hifi.addEventListener('change', () => console.log('Hi-Fi:', hifi.checked));
+
+    // AI Commentary Simulation
+    const comments = [
+      'This track has a vibrant beat perfect for your morning vibe!',
+      'A smooth melody that’s great for relaxing!',
+      'High-energy tune, ideal for a workout session!',
+      'Soulful vocals that hit all the right notes!'
+    ];
+
+    function generateAIComment() {
+      const comment = comments[Math.floor(Math.random() * comments.length)];
+      document.getElementById('ai-comment').innerText = comment;
+    }
+
+    // Navigation
+    const navLinks = document.querySelectorAll('nav a');
+    const sections = document.querySelectorAll('.content-section');
+
+    navLinks.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const sectionId = link.getAttribute('data-section');
+        sections.forEach(section => {
+          section.classList.remove('active');
+          if (section.id === sectionId) {
+            section.classList.add('active');
+          }
+        });
+      });
+    });
+
+    // Search Simulation
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      const query = e.target.value;
+      document.getElementById('search-results').innerText = `Searching for: ${query}`;
+    });
+  </script>
+</body>
+</html>
