@@ -1,290 +1,1713 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minimalist Radio Station</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background-color: #F5F5DC; /* Beige background */
-            font-family: 'Arial', sans-serif;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-        }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Minimalist Radio Player</title>
+<style>
+  :root {
+    --color-bg: #f5f0e6;
+    --color-beige: #f5f0e6;
+    --color-text: #4b3b2b;
+    --color-accent: #a67b5b;
+    --color-accent-dark: #7b5a3a;
+    --color-muted: #a69c8e;
+    --color-white: #fff;
+    --color-black: #000;
+    --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  body {
+    margin: 0; padding: 0;
+    font-family: var(--font);
+    background: var(--color-beige);
+    color: var(--color-text);
+    overflow-x: hidden;
+  }
+  header {
+    background: var(--color-accent);
+    padding: 1rem 2rem;
+    color: var(--color-white);
+    text-align: center;
+    font-weight: 600;
+    font-size: 1.5rem;
+    user-select: none;
+    letter-spacing: 1.5px;
+  }
+  main {
+    max-width: 1080px;
+    margin: 1rem auto 3rem;
+    padding: 0 1rem;
+  }
+  nav {
+    display: flex;
+    justify-content: center;
+    gap: 1.25rem;
+    margin: 1rem 0 2rem;
+  }
+  nav button {
+    padding: 0.5rem 1.25rem;
+    border-radius: 25px;
+    border: 1.5px solid var(--color-accent-dark);
+    background: transparent;
+    color: var(--color-accent-dark);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.3s ease, color 0.3s ease;
+    font-size: 1.4rem;
+  }
+  nav button.active,
+  nav button:hover {
+    background: var(--color-accent-dark);
+    color: var(--color-white);
+  }
+  section {
+    display: none;
+  }
+  section.active {
+    display: block;
+  }
+  /* Home page */
+  #home {
+    min-height: 420px;
+  }
+  .playlist-day, .playlist-trendy {
+    margin-bottom: 2rem;
+  }
+  .playlist-day h2, .playlist-trendy h2 {
+    font-weight: 700;
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--color-accent-dark);
+    padding-bottom: 0.25rem;
+  }
+  .track-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .track-list li {
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: background 0.2s ease;
+  }
+  .track-list li:hover {
+    background: var(--color-accent);
+    color: var(--color-white);
+  }
+  .track-list li.playing {
+    background: var(--color-accent-dark);
+    color: var(--color-white);
+    font-weight: 700;
+  }
+  /* Queue & timer */
+  #queue-container {
+    margin-top: 2rem;
+    border-top: 1px solid var(--color-muted);
+    padding-top: 1rem;
+  }
+  #queue-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  #queue-list li {
+    font-size: 0.9rem;
+    padding: 0.25rem 0;
+    cursor: default;
+    border-bottom: 1px dotted var(--color-muted);
+  }
+  #timer-container {
+    margin-top: 1rem;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  #timer-input {
+    width: 5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--color-muted);
+    font-size: 1rem;
+  }
+  #timer-label {
+    user-select: none;
+  }
+  /* Search container on home */
+  #search-container {
+    margin-bottom: 1rem;
+    max-width: 360px;
+  }
+  #search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 12px;
+    border: 1.5px solid var(--color-muted);
+    font-size: 1rem;
+  }
+  /* Settings moved visualizer controls to home below */
+  #visualizer-settings-home {
+    margin-top: 1rem;
+    max-width: 360px;
+  }
+  #visualizer-settings-home label {
+    font-weight: 600;
+    user-select: none;
+  }
+  #visualizer-settings-home input[type=color] {
+    margin-top: 0.25rem;
+    cursor: pointer;
+    width: 100%;
+    height: 1.5rem;
+    border: none;
+    background: none;
+  }
+
+  /* Settings page */
+  #settings {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  #settings h2 {
+    font-weight: 700;
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--color-accent-dark);
+    padding-bottom: 0.25rem;
+  }
+  .settings-group {
+    margin-bottom: 2rem;
+  }
+  label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  input[type=range], select, input[type=color] {
+    width: 100%;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+  }
+  .equalizer-sliders {
+    display: flex;
+    justify-content: space-between;
+  }
+  .equalizer-sliders input[type=range] {
+    max-width: 60px;
+    writing-mode: bt-lr;
+    -webkit-appearance: slider-vertical;
+  }
+  /* Auth */
+  #auth {
+    max-width: 320px;
+    margin: 2rem auto;
+    border: 1px solid var(--color-muted);
+    border-radius: 10px;
+    padding: 1.5rem 1.75rem;
+    background: #fff9f0;
+  }
+  #auth h3 {
+    text-align: center;
+    margin-bottom: 1rem;
+    color: var(--color-accent-dark);
+  }
+  #auth form {
+    display: flex;
+    flex-direction: column;
+  }
+  #auth input {
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-muted);
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+  #auth button {
+    background: var(--color-accent-dark);
+    color: var(--color-white);
+    border: none;
+    padding: 0.6rem 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.3s ease;
+  }
+  #auth button:hover {
+    background: var(--color-accent);
+  }
+  #auth .toggle {
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--color-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  #auth .toggle:hover {
+    text-decoration: underline;
+  }
+  /* Media Controls - enhanced vintage radio style */
+  #media-controls {
+    background: radial-gradient(circle at center, #b29478 5%, #6d583e 90%);
+    border: 4px solid var(--color-accent-dark);
+    border-radius: 1.5rem;
+    padding: 1rem 2rem;
+    color: var(--color-white);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+    margin-top: 2rem;
+    user-select: none;
+    box-shadow:
+      inset 0 0 25px 4px rgba(255 255 255 / 0.35),
+      0 0 25px 4px rgba(0 0 0 / 0.25);
+    font-family: 'Courier New', Courier, monospace;
+  }
+  #media-controls button {
+    border: 2px solid var(--color-white);
+    background: radial-gradient(circle at center, #8e6e42, #5a4222);
+    color: var(--color-white);
+    font-size: 1.8rem;
+    cursor: pointer;
+    width: 3.4rem;
+    height: 3.4rem;
+    border-radius: 50%;
+    transition: background 0.2s ease, color 0.2s ease;
+    box-shadow: inset 0 3px 0 rgba(255 255 255, 0.8),
+      0 1px 3px rgba(0,0,0,0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  #media-controls button:focus {
+    outline: 2px solid var(--color-white);
+  }
+  #media-controls button:hover:not(.disabled) {
+    background: radial-gradient(circle at center, #a17d48, #6e4b1d);
+    box-shadow: inset 0 4px 0 rgba(255 255 255, 0.7), 0 0 12px 2px #a67b5bcc;
+  }
+  #media-controls button.disabled {
+    color: rgba(255 255 255 / 0.4);
+    cursor: not-allowed;
+    background: radial-gradient(circle at center, #5a452a, #362b1a);
+    box-shadow: none;
+  }
+  #time-display {
+    font-weight: 700;
+    width: 90px;
+    text-align: center;
+    font-size: 1.1rem;
+    text-shadow: 0 0 3px #3d2e16aa;
+  }
+  #volume-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #volume-slider {
+    width: 100px;
+    cursor: pointer;
+  }
+  /* Vintage radio knobs decoration */
+  #media-controls button svg {
+    pointer-events: none;
+  }
+  /* Chat bubble */
+  #chat-container {
+    position: fixed;
+    bottom: 90px;
+    right: 20px;
+    width: 320px;
+    max-height: 460px;
+    background: var(--color-white);
+    box-shadow: 0 3px 18px rgba(0,0,0,0.3);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    font-size: 0.9rem;
+    user-select: none;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+  }
+  #chat-container.visible {
+    transform: translateY(0%);
+  }
+  #chat-header {
+    background: var(--color-accent-dark);
+    color: var(--color-white);
+    font-weight: 700;
+    padding: 0.75rem 1rem;
+    border-radius: 12px 12px 0 0;
+    cursor: pointer;
+  }
+  #chat-messages {
+    overflow-y: auto;
+    flex-grow: 1;
+    padding: 0.75rem 1rem;
+    background: #f9f7f2;
+  }
+  .message {
+    margin-bottom: 0.75rem;
+    line-height: 1.3;
+  }
+  .message.ai {
+    color: var(--color-accent-dark);
+    font-weight: 600;
+  }
+  .message.user {
+    text-align: right;
+    color: var(--color-accent);
+    font-style: italic;
+  }
+  #chat-input-container {
+    border-top: 1px solid var(--color-muted);
+    display: flex;
+    padding: 0.25rem 1rem;
+    gap: 0.5rem;
+  }
+  #chat-input {
+    flex-grow: 1;
+    border: 1px solid var(--color-muted);
+    border-radius: 12px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  #chat-send-btn {
+    background: var(--color-accent-dark);
+    border: none;
+    color: var(--color-white);
+    padding: 0.4rem 1rem;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+    font-weight: 700;
+  }
+  #chat-send-btn:hover {
+    background: var(--color-accent);
+  }
+  /* Playlist controls */
+  .playlist-controls {
+    margin-bottom: 1rem;
+  }
+  .playlist-controls button {
+    background: var(--color-accent-dark);
+    border: none;
+    color: var(--color-white);
+    padding: 0.4rem 0.9rem;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 700;
+    margin-right: 0.5rem;
+    transition: background 0.3s ease;
+  }
+  .playlist-controls button:hover {
+    background: var(--color-accent);
+  }
+  /* Album/artist/playlist list */
+  .list-entries {
+    max-width: 600px;
+    margin: 0 auto 2rem;
+  }
+  .list-entries h3 {
+    margin-top: 1rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--color-accent-dark);
+  }
+  .list-entries ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+  }
+  .list-entries li {
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1.5px solid var(--color-accent-dark);
+    margin-bottom: 0.5rem;
+    transition: background 0.3s ease;
+  }
+  .list-entries li:hover {
+    background: var(--color-accent-dark);
+    color: var(--color-white);
+  }
+  /* Ambient Sounds toggle */
+  #ambient-sounds {
+    margin-top: 1rem;
+    font-weight: 700;
+    color: var(--color-accent-dark);
+  }
+  /* Visualizer */
+  #visualizer {
+    margin-top: 1rem;
+    background: #f0eacc;
+    height: 120px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+  #visualizer canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    position: relative;
+    z-index: 10;
+  }
+  /* Blowing tree animation container */
+  #blowing-tree {
+    position: absolute;
+    bottom: 0;
+    left: 10px;
+    width: 120px;
+    height: 120px;
+    pointer-events: none;
+    user-select: none;
+    z-index: 2;
+  }
+  /* Blowing tree sway animation */
+  @keyframes sway {
+    0%, 100% { transform: rotate(3deg); }
+    50% { transform: rotate(-3deg); }
+  }
+  #blowing-tree svg {
+    animation: sway 5s ease-in-out infinite;
+    transform-origin: 50% 100%;
+  }
+  /* Animated water repelled droplets on home background */
+  #water-droplets {
+    position: fixed;
+    top: 10vh;
+    right: 15vw;
+    width: 50px;
+    height: 100px;
+    pointer-events: none;
+    user-select: none;
+    z-index: 4;
+  }
+  /* Animating vertical bouncing droplets */
+  .droplet {
+    width: 8px;
+    height: 8px;
+    background: #6096BA;
+    border-radius: 50%;
+    opacity: 0.6;
+    position: absolute;
+    animation: dropbounce 3.5s ease-in-out infinite;
+  }
+  .droplet:nth-child(1) {
+    left: 0; animation-delay: 0s;
+  }
+  .droplet:nth-child(2) {
+    left: 18px; animation-delay: 1s;
+  }
+  .droplet:nth-child(3) {
+    left: 36px; animation-delay: 2s;
+  }
+  @keyframes dropbounce {
+    0%, 100% {
+      transform: translateY(0);
+      opacity: 0.6;
+    }
+    50% {
+      transform: translateY(-20px);
+      opacity: 0.9;
+    }
+  }
+  /* Pouring coffee gif style (minimal vertical animation) */
+  #pouring-coffee {
+    position: fixed;
+    bottom: 20px;
+    left: 15vw;
+    width: 100px;
+    height: 140px;
+    background: radial-gradient(circle at center, #6f4e37 60%, #4b3721 80%);
+    border-radius: 60% 60% 40% 40% / 80% 75% 25% 20%;
+    box-shadow:
+      inset 0 5px 10px 3px #b75e2a,
+      inset 0 -5px 15px 3px #3a251b;
+    animation: coffee-pour 2.5s ease-in-out infinite;
+    pointer-events:none;
+    user-select:none;
+    z-index: 3;
+  }
+  @keyframes coffee-pour {
+    0%, 100% {
+      transform: translateY(0);
+      box-shadow:
+        inset 0 5px 10px 3px #b75e2a,
+        inset 0 -5px 15px 3px #3a251b;
+    }
+    50% {
+      transform: translateY(6px);
+      box-shadow:
+        inset 0 7px 15px 3px #b75e2a,
+        inset 0 -7px 20px 3px #3a251b;
+    }
+  }
+  /* Scrollbar for queues and chat */
+  #queue-list::-webkit-scrollbar,
+  #chat-messages::-webkit-scrollbar {
+    width: 8px;
+  }
+  #queue-list::-webkit-scrollbar-thumb,
+  #chat-messages::-webkit-scrollbar-thumb {
+    background-color: var(--color-accent-dark);
+    border-radius: 10px;
+  }
+  /* Responsive */
+  @media (max-width: 600px) {
+    #media-controls {
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    nav {
+      flex-wrap: wrap;
+    }
+    #chat-container {
+      width: 90vw;
+      right: 5vw;
+    }
+  }
+</style>
 </head>
-<body class="min-h-screen flex flex-col text-gray-800">
-    <!-- Navigation Bar -->
-    <nav class="bg-[#EDE4C8] p-4 flex justify-between items-center shadow-md">
-        <h1 class="text-2xl font-light">Minimal Radio</h1>
-        <div class="space-x-4">
-            <button id="homeBtn" class="hover:text-gray-600">Home</button>
-            <button id="settingsBtn" class="hover:text-gray-600">Settings</button>
-            <button id="signupBtn" class="hover:text-gray-600">Sign Up</button>
-            <button id="loginBtn" class="hover:text-gray-600">Log In</button>
-        </div>
-    </nav>
-
-    <!-- Main Content -->
-    <main class="flex-1 p-6 max-w-7xl mx-auto">
-        <!-- Home Screen -->
-        <div id="homeScreen" class="space-y-6">
-            <h2 class="text-xl font-light">Playlist of the Day</h2>
-            <div id="dailyPlaylist" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <!-- Playlist items will be populated by JS -->
-            </div>
-            <div class="mt-4">
-                <input id="searchInput" type="text" placeholder="Search songs, artists, albums..." 
-                       class="w-full p-2 bg-[#FAF0E6] border border-gray-300 rounded focus:outline-none">
-                <button id="searchBtn" class="mt-2 bg-[#D2B48C] text-white px-4 py-2 rounded hover:bg-[#C19A6B]">
-                    Search
-                </button>
-            </div>
-        </div>
-
-        <!-- Settings Screen -->
-        <div id="settingsScreen" class="hidden space-y-6">
-            <h2 class="text-xl font-light">Settings</h2>
-            <div>
-                <h3 class="text-lg">Equalizer</h3>
-                <div id="equalizer" class="space-y-2">
-                    <label>Bass: <input type="range" min="0" max="100" value="50" class="w-48"></label>
-                    <label>Mid: <input type="range" min="0" max="100" value="50" class="w-48"></label>
-                    <label>Treble: <input type="range" min="0" max="100" value="50" class="w-48"></label>
-                </div>
-            </div>
-            <div>
-                <h3 class="text-lg">Hi-Fi Mode</h3>
-                <label><input type="checkbox" id="hifiMode"> Enable Hi-Fi Audio</label>
-            </div>
-            <div>
-                <h3 class="text-lg">Sleep Timer</h3>
-                <select id="sleepTimer" class="p-2 bg-[#FAF0E6] border border-gray-300 rounded">
-                    <option value="0">Off</option>
-                    <option value="15">15 Minutes</option>
-                    <option value="30">30 Minutes</option>
-                    <option value="60">60 Minutes</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Playlist/Album/Artist Screen -->
-        <div id="contentScreen" class="hidden space-y-6">
-            <div class="flex justify-between">
-                <h2 id="contentTitle" class="text-xl font-light">Playlists</h2>
-                <button id="createPlaylistBtn" class="bg-[#D2B48C] text-white px-4 py-2 rounded hover:bg-[#C19A6B]">
-                    Create Playlist
-                </button>
-            </div>
-            <div id="contentList" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <!-- Content items will be populated by JS -->
-            </div>
-        </div>
-    </main>
-
-    <!-- Media Player -->
-    <div class="fixed bottom-0 w-full bg-[#EDE4C8] p-4 flex items-center justify-between shadow-md">
-        <div class="flex items-center space-x-4">
-            <img id="albumArt" src="https://via.placeholder.com/64" alt="Album Art" class="w-16 h-16 rounded">
-            <div>
-                <p id="trackTitle" class="font-light">Song Title</p>
-                <p id="artistName" class="text-sm text-gray-600">Artist</p>
-            </div>
-        </div>
-        <div class="flex items-center space-x-4">
-            <button id="prevBtn" class="text-gray-600 hover:text-gray-800">⏮</button>
-            <button id="playPauseBtn" class="text-gray-600 hover:text-gray-800">▶️</button>
-            <button id="nextBtn" class="text-gray-600 hover:text-gray-800">⏭</button>
-            <div id="trackTime" class="text-sm">0:00 / 0:00</div>
-        </div>
-        <div class="flex items-center space-x-4">
-            <button id="muteBtn" class="text-gray-600 hover:text-gray-800">🔊</button>
-            <input id="volumeSlider" type="range" min="0" max="100" value="50" class="w-24">
-        </div>
+<body>
+<header>
+  <!-- Removed text, blank header -->
+</header>
+<nav>
+  <button id="nav-home" class="active" aria-label="Home">🏠</button>
+  <button id="nav-playlists" aria-label="Playlists">🎵</button>
+  <button id="nav-settings" aria-label="Settings">⚙️</button>
+  <button id="nav-auth" aria-label="Login / Signup">🔑</button>
+</nav>
+<main>
+  <section id="home" class="active" aria-label="Home screen">
+    <div id="search-container">
+      <input type="text" id="search-input" placeholder="🔍 Search or paste YouTube playlist URL and press Enter..." aria-label="Search songs or paste YouTube playlist URL" />
     </div>
 
-    <!-- AI Chat Bubble -->
-    <div id="aiChat" class="fixed bottom-20 right-4 bg-[#FAF0E6] p-4 rounded-lg shadow-lg w-80 max-h-96 overflow-y-auto scrollbar-hide">
-        <h3 class="text-lg font-light">AI Assistant</h3>
-        <div id="chatMessages" class="space-y-2">
-            <p class="text-sm">Hi! I'm your AI radio host. Need song recommendations or just want to chat?</p>
-        </div>
-        <input id="chatInput" type="text" placeholder="Type your message..." 
-               class="w-full mt-2 p-2 bg-white border border-gray-300 rounded focus:outline-none">
-        <button id="chatSendBtn" class="mt-2 bg-[#D2B48C] text-white px-4 py-2 rounded hover:bg-[#C19A6B]">
-            Send
-        </button>
+    <div class="playlist-trendy">
+      <h2>🔥 New Trendy Songs</h2>
+      <ul class="track-list" id="playlist-trendy-tracks" role="list"></ul>
     </div>
 
-    <!-- JavaScript -->
-    <script>
-        // Screen Navigation
-        const screens = ['homeScreen', 'settingsScreen', 'contentScreen'];
-        function showScreen(screenId) {
-            screens.forEach(id => document.getElementById(id).classList.add('hidden'));
-            document.getElementById(screenId).classList.remove('hidden');
+    <div class="playlist-day">
+      <h2>🎶 Playlist of the Day</h2>
+      <ul class="track-list" id="playlist-day-tracks" role="list"></ul>
+    </div>
+
+    <div id="queue-container">
+      <h3>▶️ Playing Queue</h3>
+      <ul id="queue-list" role="list"></ul>
+      <div id="timer-container">
+        <label id="timer-label" for="timer-input">⏳ Timer (min)</label>
+        <input type="number" id="timer-input" min="1" max="120" step="1" value="0" />
+        <button id="timer-toggle" title="Start/Pause Timer">⏲️</button>
+      </div>
+    </div>
+    <div id="ambient-sounds">
+      🌿 Ambient Sounds: <select id="ambient-select" aria-label="Select ambient sounds">
+        <option value="none">❌ None</option>
+        <option value="rain">🌧️ Rain</option>
+        <option value="forest">🌲 Forest</option>
+        <option value="waves">🌊 Waves</option>
+      </select>
+      <button id="ambient-toggle" title="Play / Pause ambient sounds">▶️</button>
+    </div>
+
+    <div id="visualizer-settings-home" aria-label="Visualizer settings on home">
+      <label><input type="checkbox" id="visualizer-toggle-home" checked /> 📊 Show Visualizer</label>
+      <label for="visualizer-color-home">🎨 Visualizer Color</label>
+      <input type="color" id="visualizer-color-home" value="#a67b5b" />
+    </div>
+
+    <div id="visualizer" aria-label="Audio visualizer">
+      <canvas></canvas>
+      <div id="blowing-tree" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="var(--color-accent-dark)" stroke-width="2" stroke-linejoin="round">
+          <path d="M32 60v-24m0 0l-8 7m8-7l8 7M28 36c-5-14 5-18 8-16s0 4-2 12" stroke-linecap="round"/>
+          <circle cx="32" cy="15" r="8" fill="var(--color-accent)" />
+        </svg>
+      </div>
+    </div>
+
+    <div id="water-droplets" aria-hidden="true">
+      <div class="droplet"></div>
+      <div class="droplet"></div>
+      <div class="droplet"></div>
+    </div>
+
+    <div id="pouring-coffee" aria-hidden="true"></div>
+
+  </section>
+
+  <section id="playlists" aria-label="Playlists management">
+    <h2>🎼 Manage Playlists</h2>
+    <div class="playlist-controls">
+      <button id="btn-new-playlist">➕ Create New Playlist</button>
+    </div>
+    <div id="playlists-list" class="list-entries"></div>
+  </section>
+
+  <section id="settings" aria-label="Settings">
+    <h2>⚙️ Settings</h2>
+    <div class="settings-group" id="theme-settings">
+      <label for="theme-select">🎨 Select Theme</label>
+      <select id="theme-select" aria-label="Theme selection">
+        <option value="beige">🟫 Beige</option>
+        <option value="dark">🌙 Dark</option>
+        <option value="blue-gray">🔷 Blue Gray</option>
+        <option value="retro">🍊 Retro Orange</option>
+      </select>
+    </div>
+    <div class="settings-group" id="equalizer-settings">
+      <label>🎚️ Equalizer</label>
+      <div class="equalizer-sliders" aria-label="Equalizer controls">
+        <input type="range" min="-12" max="12" value="0" data-frequency="60" aria-label="Bass frequency slider" />
+        <input type="range" min="-12" max="12" value="0" data-frequency="170" aria-label="Low Mid frequency slider" />
+        <input type="range" min="-12" max="12" value="0" data-frequency="350" aria-label="Mid frequency slider" />
+        <input type="range" min="-12" max="12" value="0" data-frequency="1000" aria-label="High Mid frequency slider" />
+        <input type="range" min="-12" max="12" value="0" data-frequency="3500" aria-label="Presence frequency slider" />
+        <input type="range" min="-12" max="12" value="0" data-frequency="10000" aria-label="Brilliance frequency slider" />
+      </div>
+    </div>
+    <div class="settings-group" id="hifi-settings">
+      <label>🎧 <input type="checkbox" id="hifi-toggle" /> Hi-Fi Mode</label>
+    </div>
+  </section>
+
+  <section id="auth" aria-label="Authentication">
+    <h3>🔐 <span id="auth-title">Sign Up</span></h3>
+    <form id="auth-form" aria-label="Authentication form">
+      <input type="text" id="auth-username" placeholder="👤 Username" required aria-required="true" autocomplete="username" />
+      <input type="password" id="auth-password" placeholder="🔒 Password" required aria-required="true" autocomplete="current-password" />
+      <button type="submit" id="auth-submit-btn">Sign Up</button>
+    </form>
+    <p class="toggle" id="auth-toggle">Already have an account? Log In</p>
+  </section>
+</main>
+
+<section id="media-controls" aria-label="Media controls vintage radio style">
+  <button id="btn-prev" title="Previous track" aria-label="Previous track" tabindex="0" aria-disabled="false" >
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+  </button>
+  <button id="btn-play-pause" title="Play/Pause" aria-label="Play or pause" tabindex="0">
+    <svg id="icon-play" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+    <svg id="icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:none"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+  </button>
+  <button id="btn-next" title="Next track" aria-label="Next track" tabindex="0" aria-disabled="false" >
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 20 15 12 5 4 5 20"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+  </button>
+  <div id="time-display" aria-live="polite" aria-atomic="true" aria-label="Current track time">00:00 / 00:00</div>
+  <div id="volume-container" aria-label="Volume controls">
+    <button id="btn-mute" title="Mute/Unmute" aria-label="Mute or unmute volume" aria-pressed="false">🔈</button>
+    <input type="range" id="volume-slider" min="0" max="1" step="0.01" aria-label="Volume slider" value="1" />
+  </div>
+</section>
+
+<section id="chat-container" aria-label="AI commentary chat" role="dialog">
+  <div id="chat-header" tabindex="0" aria-controls="chat-content" aria-expanded="false">🤖 AI Radio Chat - Click to open</div>
+  <div id="chat-messages" id="chat-content" aria-live="polite" aria-relevant="additions"></div>
+  <div id="chat-input-container">
+    <input id="chat-input" type="text" placeholder="💬 Ask the radio AI..." aria-label="Chat input" autocomplete="off" />
+    <button id="chat-send-btn" aria-label="Send chat message">Send</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  // Stored music data: sample open source style music
+  const sampleTracks = [
+    {
+      id: 'track001',
+      title: 'Gentle Waves',
+      artist: 'Embertune',
+      album: 'Ocean Moods',
+      duration: 180,
+      url: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/waves.mp3',
+      cover: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/waves.jpg'
+    },
+    {
+      id: 'track002',
+      title: 'Peaceful Forest',
+      artist: 'Embertune',
+      album: 'Forest Life',
+      duration: 210,
+      url: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/forest.mp3',
+      cover: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/forest.jpg'
+    },
+    {
+      id: 'track003',
+      title: 'Sunset Groove',
+      artist: 'XManager',
+      album: 'Vibes',
+      duration: 195,
+      url: 'https://cdn.jsdelivr.net/gh/xmanager-music/sunset-groove.mp3',
+      cover: 'https://cdn.jsdelivr.net/gh/xmanager-music/sunset-groove.jpg'
+    },
+    {
+      id: 'track004',
+      title: 'City Lights',
+      artist: 'Musify',
+      album: 'Nightwalk',
+      duration: 230,
+      url: 'https://cdn.jsdelivr.net/gh/musify/nighwalk-city-lights.mp3',
+      cover: 'https://cdn.jsdelivr.net/gh/musify/nighwalk-city-lights.jpg'
+    }
+  ];
+  // Additional trendy songs to show on home trendy playlist
+  const trendyTracks = [
+    {
+      id: 'track101',
+      title: 'Morning Breeze',
+      artist: 'CoolAir',
+      album: 'Fresh Start',
+      duration: 165,
+      url: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/breeze.mp3',
+      cover: ''
+    },
+    {
+      id: 'track102',
+      title: 'Night Drive',
+      artist: 'XManager',
+      album: 'City Lights',
+      duration: 240,
+      url: 'https://cdn.jsdelivr.net/gh/xmanager-music/night-drive.mp3',
+      cover: ''
+    },
+    {
+      id: 'track103',
+      title: 'Rainy Window',
+      artist: 'Musify',
+      album: 'Mood',
+      duration: 210,
+      url: 'https://cdn.jsdelivr.net/gh/musify/rainy-window.mp3',
+      cover: ''
+    },
+    {
+      id: 'track104',
+      title: 'Coffee Time',
+      artist: 'Embertune',
+      album: 'Cafe Vibes',
+      duration: 180,
+      url: 'https://cdn.jsdelivr.net/gh/jbrown/embertune-music/coffee-time.mp3',
+      cover: ''
+    }
+  ];
+
+  // MODEL AND STATE
+  let user = null;
+  let isLoggedIn = false;
+  let playlists = JSON.parse(localStorage.getItem('radio-playlists')) || [];
+  let currentPlaylist = null;
+  let playingQueue = [];
+  let currentTrackIndex = -1;
+  let timerId = null;
+  let timerRemaining = 0;
+  let timerRunning = false;
+  let ambientAudio = null;
+  let ambientPlaying = false;
+  let ambientSoundsUrls = {
+    rain: 'https://cdn.pixabay.com/download/audio/2022/03/25/audio_3ad9b9e539.mp3?filename=rain-ambient-sounds-6225.mp3',
+    forest: 'https://cdn.pixabay.com/download/audio/2022/03/20/audio_3ae98f9955.mp3?filename=forest-birds-night-ambient-sound-6129.mp3',
+    waves: 'https://cdn.pixabay.com/download/audio/2022/08/16/audio_b4aee6aea3.mp3?filename=sea-waves-ambient-7759.mp3'
+  };
+  let aiChatOpen = false;
+
+  // DOM ELEMENTS
+  const navButtons = {
+    home: document.getElementById('nav-home'),
+    playlists: document.getElementById('nav-playlists'),
+    settings: document.getElementById('nav-settings'),
+    auth: document.getElementById('nav-auth')
+  };
+  const sections = {
+    home: document.getElementById('home'),
+    playlists: document.getElementById('playlists'),
+    settings: document.getElementById('settings'),
+    auth: document.getElementById('auth')
+  };
+  const playlistDayTracks = document.getElementById('playlist-day-tracks');
+  const playlistTrendyTracks = document.getElementById('playlist-trendy-tracks');
+  const queueList = document.getElementById('queue-list');
+  const timerInput = document.getElementById('timer-input');
+  const timerToggle = document.getElementById('timer-toggle');
+  const ambientSelect = document.getElementById('ambient-select');
+  const ambientToggleBtn = document.getElementById('ambient-toggle');
+  const visualizerContainer = document.getElementById('visualizer');
+  const visualizerToggleHome = document.getElementById('visualizer-toggle-home');
+  const visualizerColorPickerHome = document.getElementById('visualizer-color-home');
+  const themeSelect = document.getElementById('theme-select');
+  const equalizerSliders = document.querySelectorAll('.equalizer-sliders input[type=range]');
+  const hifiToggle = document.getElementById('hifi-toggle');
+  const playlistsListDiv = document.getElementById('playlists-list');
+  const btnNewPlaylist = document.getElementById('btn-new-playlist');
+  const authForm = document.getElementById('auth-form');
+  const authTitle = document.getElementById('auth-title');
+  const authToggle = document.getElementById('auth-toggle');
+  const authUsername = document.getElementById('auth-username');
+  const authPassword = document.getElementById('auth-password');
+  const authSubmitBtn = document.getElementById('auth-submit-btn');
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  const btnNext = document.getElementById('btn-next');
+  const btnPrev = document.getElementById('btn-prev');
+  const timeDisplay = document.getElementById('time-display');
+  const btnMute = document.getElementById('btn-mute');
+  const volumeSlider = document.getElementById('volume-slider');
+  const chatContainer = document.getElementById('chat-container');
+  const chatHeader = document.getElementById('chat-header');
+  const chatMessages = document.getElementById('chat-messages');
+  const chatInput = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  const searchInput = document.getElementById('search-input');
+
+  // AUDIO SETUP
+  let audioCtx = null;
+  let audioElement = null;
+  let audioSource = null;
+  let gainNode = null;
+  let analyser = null;
+  let eqFilters = [];
+  let animationId = null;
+  let muted = false;
+
+  // Visualizer canvas
+  const canvas = visualizerContainer.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  let canvasWidth, canvasHeight;
+
+  // UTILITIES
+  function formatSeconds(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  }
+
+  // Simple YouTube Playlist URL detection and parsing mock
+  function isYouTubePlaylistUrl(text) {
+    return /youtube\.com\/playlist\?list=/.test(text) || /youtube\.com\/watch\?.*list=/.test(text);
+  }
+  // Mock fetch of YouTube playlist titles (simulate with sample data)
+  function fetchYouTubePlaylistTracks(url) {
+    // In practice, requires YouTube API key, here simplified with mock data
+    return new Promise(resolve => {
+      // Provide sample tracks as placeholders for YouTube playlist
+      const ytSample = [
+        {id: 'yt1', title: 'YT Song 1', artist: 'YT Artist', album: 'YT Album', duration: 240, url: ''},
+        {id: 'yt2', title: 'YT Song 2', artist: 'YT Artist', album: 'YT Album', duration: 210, url: ''},
+        {id: 'yt3', title: 'YT Song 3', artist: 'YT Artist', album: 'YT Album', duration: 200, url: ''},
+      ];
+      setTimeout(() => resolve(ytSample), 1500);
+    });
+  }
+
+  // Auth - simple localStorage user store (demo only)
+  function saveUser(username, password) {
+    localStorage.setItem('radio-user', JSON.stringify({username, password}));
+  }
+  function loadUser() {
+    const u = localStorage.getItem('radio-user');
+    if(u) {
+      try {
+        const obj = JSON.parse(u);
+        if(obj.username && obj.password) return obj;
+      } catch {}
+    }
+    return null;
+  }
+  function verifyUser(username, password) {
+    const u = loadUser();
+    if(!u) return false;
+    return u.username === username && u.password === password;
+  }
+  function logInUser(username) {
+    user = username;
+    isLoggedIn = true;
+    localStorage.setItem('radio-logged-in-user', username);
+    updateAuthUI();
+  }
+  function logOutUser() {
+    user = null;
+    isLoggedIn = false;
+    localStorage.removeItem('radio-logged-in-user');
+    updateAuthUI();
+  }
+  function checkLoggedIn() {
+    const loggedUser = localStorage.getItem('radio-logged-in-user');
+    if(loggedUser) {
+      user = loggedUser;
+      isLoggedIn = true;
+    }
+    updateAuthUI();
+  }
+  function updateAuthUI() {
+    if(isLoggedIn) {
+      navButtons.auth.textContent = `🔓 Logout (${user})`;
+      authForm.style.display = 'none';
+      authToggle.style.display = 'none';
+    } else {
+      navButtons.auth.textContent = '🔑';
+      authForm.style.display = 'flex';
+      authToggle.style.display = 'block';
+    }
+  }
+
+  // Navigation logic
+  function navigate(view) {
+    Object.keys(sections).forEach(key => {
+      if(key === view) {
+        sections[key].classList.add('active');
+        navButtons[key].classList.add('active');
+      } else {
+        sections[key].classList.remove('active');
+        navButtons[key].classList.remove('active');
+      }
+    });
+    if(view === 'auth' && isLoggedIn) {
+      // If logged in and user tries auth page, show home instead
+      navigate('home');
+    }
+  }
+  Object.entries(navButtons).forEach(([key, btn]) => {
+    btn.addEventListener('click', () => {
+      if(key === 'auth' && isLoggedIn) {
+        if(confirm('Logout now?')) {
+          logOutUser();
+          navigate('home');
         }
+      } else {
+        navigate(key);
+      }
+    });
+  });
 
-        document.getElementById('homeBtn').addEventListener('click', () => showScreen('homeScreen'));
-        document.getElementById('settingsBtn').addEventListener('click', () => showScreen('settingsScreen'));
-        document.getElementById('signupBtn').addEventListener('click', () => alert('Redirect to Sign Up with Spotify/YouTube'));
-        document.getElementById('loginBtn').addEventListener('click', () => alert('Redirect to Log In with Spotify/YouTube'));
-
-        // Search Functionality (Placeholder)
-        document.getElementById('searchBtn').addEventListener('click', () => {
-            const query = document.getElementById('searchInput').value;
-            alert(`Searching for: ${query}`);
-            // Backend API call to search Spotify/YouTube
-        });
-
-        // Playlist Management
-        document.getElementById('createPlaylistBtn').addEventListener('click', () => {
-            const name = prompt('Enter playlist name:');
-            if (name) {
-                addContentItem('Playlist', name);
-            }
-        });
-
-        function addContentItem(type, name) {
-            const item = document.createElement('div');
-            item.className = 'bg-[#FAF0E6] p-4 rounded shadow flex justify-between items-center';
-            item.innerHTML = `
-                <span>${type}: ${name}</span>
-                <div>
-                    <button class="editBtn text-gray-600 hover:text-gray-800 mr-2">Edit</button>
-                    <button class="deleteBtn text-gray-600 hover:text-gray-800">Delete</button>
-                    <button class="saveBtn text-gray-600 hover:text-gray-800">Save</button>
-                </div>
-            `;
-            document.getElementById('contentList').appendChild(item);
-            item.querySelector('.editBtn').addEventListener('click', () => alert(`Editing ${name}`));
-            item.querySelector('.deleteBtn').addEventListener('click', () => item.remove());
-            item.querySelector('.saveBtn').addEventListener('click', () => alert(`Saving ${name} to playlist`));
+  // Display Playlist of the Day (pick random 4 tracks)
+  function displayPlaylistOfDay() {
+    playlistDayTracks.innerHTML = '';
+    const shuffled = [...sampleTracks].sort(() => 0.5 - Math.random());
+    const playlistDay = shuffled.slice(0, 4);
+    playlistDay.forEach(track => {
+      const li = document.createElement('li');
+      li.textContent = `🎵 ${track.title} - ${track.artist}`;
+      li.setAttribute('tabindex', 0);
+      li.setAttribute('data-track-id', track.id);
+      li.setAttribute('role', 'button');
+      if(currentTrackIndex >= 0 && playingQueue[currentTrackIndex] && playingQueue[currentTrackIndex].id === track.id) {
+        li.classList.add('playing');
+      }
+      li.addEventListener('click', () => {
+        startPlayback([track]);
+      });
+      li.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          startPlayback([track]);
         }
-
-        // Media Controls
-        let isPlaying = false;
-        document.getElementById('playPauseBtn').addEventListener('click', () => {
-            isPlaying = !isPlaying;
-            document.getElementById('playPauseBtn').textContent = isPlaying ? '⏸' : '▶️';
-            // Backend call to play/pause track
-        });
-        document.getElementById('prevBtn').addEventListener('click', () => alert('Previous track'));
-        document.getElementById('nextBtn').addEventListener('click', () => alert('Next track'));
-        document.getElementById('muteBtn').addEventListener('click', () => {
-            const isMuted = document.getElementById('muteBtn').textContent === '🔊';
-            document.getElementById('muteBtn').textContent = isMuted ? '🔇' : '🔊';
-            // Adjust audio mute state
-        });
-        document.getElementById('volumeSlider').addEventListener('input', (e) => {
-            // Adjust audio volume
-            console.log(`Volume: ${e.target.value}`);
-        });
-
-        // Sleep Timer
-        document.getElementById('sleepTimer').addEventListener('change', (e) => {
-            const minutes = e.target.value;
-            if (minutes > 0) {
-                setTimeout(() => {
-                    isPlaying = false;
-                    document.getElementById('playPauseBtn').textContent = '▶️';
-                    alert('Sleep timer paused the music');
-                }, minutes * 60 * 1000);
-            }
-        });
-
-        // AI Chat (Placeholder)
-        document.getElementById('chatSendBtn').addEventListener('click', () => {
-            const message = document.getElementById('chatInput').value;
-            if (message) {
-                const msgDiv = document.createElement('div');
-                msgDiv.className = 'text-sm';
-                msgDiv.textContent = `You: ${message}`;
-                document.getElementById('chatMessages').appendChild(msgDiv);
-                document.getElementById('chatInput').value = '';
-                // Simulate AI response
-                setTimeout(() => {
-                    const aiMsg = document.createElement('div');
-                    aiMsg.className = 'text-sm';
-                    aiMsg.textContent = `AI: Great choice! Want more songs like that?`;
-                    document.getElementById('chatMessages').appendChild(aiMsg);
-                }, 1000);
-            }
-        });
-
-        // Download Song (Placeholder)
-        function downloadSong(songId) {
-            alert(`Downloading song with ID: ${songId}`);
-            // Backend call to download song (requires authentication)
+      });
+      playlistDayTracks.appendChild(li);
+    });
+  }
+  // Display Trendy Songs on Home
+  function displayTrendySongs() {
+    playlistTrendyTracks.innerHTML = '';
+    trendyTracks.forEach(track => {
+      const li = document.createElement('li');
+      li.textContent = `🔥 ${track.title} - ${track.artist}`;
+      li.setAttribute('tabindex', 0);
+      li.setAttribute('data-track-id', track.id);
+      li.setAttribute('role', 'button');
+      if(currentTrackIndex >= 0 && playingQueue[currentTrackIndex] && playingQueue[currentTrackIndex].id === track.id) {
+        li.classList.add('playing');
+      }
+      li.addEventListener('click', () => {
+        startPlayback([track]);
+      });
+      li.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          startPlayback([track]);
         }
+      });
+      playlistTrendyTracks.appendChild(li);
+    });
+  }
 
-        // Populate Daily Playlist (Mock Data)
-        function loadDailyPlaylist() {
-            const playlist = [
-                { title: 'Song 1', artist: 'Artist 1' },
-                { title: 'Song 2', artist: 'Artist 2' },
-                { title: 'Song 3', artist: 'Artist 3' },
-            ];
-            const container = document.getElementById('dailyPlaylist');
-            playlist.forEach(song => {
-                const item = document.createElement('div');
-                item.className = 'bg-[#FAF0E6] p-4 rounded shadow flex justify-between items-center';
-                item.innerHTML = `
-                    <span>${song.title} by ${song.artist}</span>
-                    <button class="saveBtn text-gray-600 hover:text-gray-800">Save</button>
-                `;
-                item.querySelector('.saveBtn').addEventListener('click', () => alert(`Saving ${song.title}`));
-                container.appendChild(item);
-            });
+  // Playback logic
+  function initAudio() {
+    if(audioElement) {
+      audioElement.pause();
+      audioElement.src = '';
+    }
+    audioElement = new Audio();
+    audioElement.crossOrigin = 'anonymous';
+    audioElement.volume = volumeSlider.value;
+    audioElement.addEventListener('ended', onTrackEnd);
+    audioElement.addEventListener('timeupdate', updateTime);
+  }
+  function setupAudioContext() {
+    if(!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioSource = audioCtx.createMediaElementSource(audioElement);
+      gainNode = audioCtx.createGain();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      audioSource.connect(gainNode);
+
+      // Equalizer frequencies 6 bands
+      const frequencies = [60,170,350,1000,3500,10000];
+      eqFilters = frequencies.map(freq => {
+        let filter = audioCtx.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = freq;
+        filter.Q.value = 1;
+        filter.gain.value = 0;
+        return filter;
+      });
+
+      // Connect the chain: source -> EQ filters -> gain -> analyser -> dest
+      audioSource.connect(eqFilters[0]);
+      for(let i=0; i<eqFilters.length-1; i++) {
+        eqFilters[i].connect(eqFilters[i+1]);
+      }
+      eqFilters[eqFilters.length-1].connect(gainNode);
+      gainNode.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    }
+  }
+  function updateEqualizer() {
+    equalizerSliders.forEach(slider => {
+      const freq = slider.dataset.frequency;
+      const gain = parseFloat(slider.value);
+      const filter = eqFilters.find(f => f.frequency.value == freq);
+      if(filter) filter.gain.value = gain;
+    });
+  }
+  function startPlayback(queue) {
+    if(queue.length === 0) return;
+    playingQueue = queue;
+    currentTrackIndex = 0;
+    playCurrentTrack();
+  }
+  function playCurrentTrack() {
+    if(currentTrackIndex < 0 || currentTrackIndex >= playingQueue.length) {
+      stopPlayback();
+      return;
+    }
+    const track = playingQueue[currentTrackIndex];
+    if(track.url) {
+      audioElement.src = track.url;
+      audioElement.play().then(() => {
+        highlightPlayingTrack();
+        addAICommentary(`🎤 Now playing: ${track.title} by ${track.artist}`);
+      }).catch(() => {});
+    } else {
+      audioElement.pause();
+      audioElement.src = '';
+      addAICommentary(`🎤 Playing: ${track.title} by ${track.artist} (Audio URL unavailable)`);
+    }
+    updateQueueUI();
+    updateMediaControlPlayIcon(false);
+  }
+  function pausePlayback() {
+    audioElement.pause();
+    updateMediaControlPlayIcon(true);
+  }
+  function playPlayback() {
+    audioElement.play();
+    updateMediaControlPlayIcon(false);
+  }
+  function togglePlayPause() {
+    if(audioElement.paused) {
+      playPlayback();
+    } else {
+      pausePlayback();
+    }
+  }
+  function playNextTrack() {
+    if(currentTrackIndex + 1 < playingQueue.length) {
+      currentTrackIndex++;
+      playCurrentTrack();
+    } else {
+      stopPlayback();
+    }
+  }
+  function playPrevTrack() {
+    if(currentTrackIndex > 0) {
+      currentTrackIndex--;
+      playCurrentTrack();
+    }
+  }
+  function stopPlayback() {
+    audioElement.pause();
+    audioElement.currentTime = 0;
+    currentTrackIndex = -1;
+    updateMediaControlPlayIcon(true);
+    clearHighlights();
+  }
+  function updateTime() {
+    if(!audioElement) return;
+    const ct = audioElement.currentTime;
+    const dt = audioElement.duration || 0;
+    timeDisplay.textContent = `${formatSeconds(ct)} / ${formatSeconds(dt)}`;
+  }
+  function highlightPlayingTrack() {
+    // Highlight in playlist Day, Trendy, and queue list
+    Array.from(playlistDayTracks.children).forEach(li => {
+      li.classList.toggle('playing', li.dataset.trackId === playingQueue[currentTrackIndex].id);
+    });
+    Array.from(playlistTrendyTracks.children).forEach(li => {
+      li.classList.toggle('playing', li.dataset.trackId === playingQueue[currentTrackIndex].id);
+    });
+    Array.from(queueList.children).forEach((li, idx) => {
+      li.classList.toggle('playing', idx === currentTrackIndex);
+    });
+  }
+  function clearHighlights() {
+    [...playlistDayTracks.children].forEach(li => li.classList.remove('playing'));
+    [...playlistTrendyTracks.children].forEach(li => li.classList.remove('playing'));
+    [...queueList.children].forEach(li => li.classList.remove('playing'));
+  }
+  function updateQueueUI() {
+    queueList.innerHTML = '';
+    playingQueue.forEach((track, idx) => {
+      const li = document.createElement('li');
+      li.textContent = `🎵 ${track.title} - ${track.artist}`;
+      if(idx === currentTrackIndex) li.classList.add('playing');
+      queueList.appendChild(li);
+    });
+  }
+  function onTrackEnd() {
+    playNextTrack();
+  }
+  // Update play/pause icon
+  function updateMediaControlPlayIcon(showPlay) {
+    const iconPlay = btnPlayPause.querySelector('#icon-play');
+    const iconPause = btnPlayPause.querySelector('#icon-pause');
+    if(showPlay) {
+      iconPlay.style.display = '';
+      iconPause.style.display = 'none';
+      btnPlayPause.setAttribute('aria-label', 'Play');
+    } else {
+      iconPlay.style.display = 'none';
+      iconPause.style.display = '';
+      btnPlayPause.setAttribute('aria-label', 'Pause');
+    }
+  }
+  // Volume controls
+  function setVolume(vol) {
+    audioElement.volume = vol;
+    muted = (vol === 0);
+    btnMute.textContent = muted ? '🔇' : '🔈';
+    btnMute.setAttribute('aria-pressed', muted ? 'true' : 'false');
+  }
+  function toggleMute() {
+    if(muted) {
+      setVolume(volumeSlider.value);
+    } else {
+      audioElement.volume = 0;
+      muted = true;
+      btnMute.textContent = '🔇';
+      btnMute.setAttribute('aria-pressed', 'true');
+    }
+  }
+
+  // Timer logic
+  function timerTick() {
+    if(timerRemaining > 0) {
+      timerRemaining--;
+      timerInput.value = timerRemaining;
+      if(timerRemaining === 0) {
+        pausePlayback();
+        timerRunning = false;
+        timerToggle.textContent = '⏲️';
+      } else {
+        timerId = setTimeout(timerTick, 60000);
+      }
+    }
+  }
+  function toggleTimer() {
+    let val = parseInt(timerInput.value);
+    if(val <= 0) {
+      if(timerRunning) {
+        clearTimeout(timerId);
+        timerRunning = false;
+        timerToggle.textContent = '⏲️';
+      }
+      return;
+    }
+    if(!timerRunning) {
+      timerRunning = true;
+      timerRemaining = val;
+      timerToggle.textContent = '⏸️';
+      timerTick();
+    } else {
+      timerRunning = false;
+      clearTimeout(timerId);
+      timerToggle.textContent = '⏲️';
+    }
+  }
+
+  // Ambient sounds
+  function playAmbientSound(type) {
+    if(ambientAudio) {
+      ambientAudio.pause();
+      ambientAudio = null;
+    }
+    if(type === 'none') {
+      ambientPlaying = false;
+      ambientToggleBtn.textContent = '▶️';
+      return;
+    }
+    ambientAudio = new Audio(ambientSoundsUrls[type]);
+    ambientAudio.loop = true;
+    ambientAudio.volume = 0.35;
+    ambientAudio.play();
+    ambientPlaying = true;
+    ambientToggleBtn.textContent = '⏸️';
+  }
+  ambientToggleBtn.addEventListener('click', () => {
+    if(!ambientPlaying) {
+      playAmbientSound(ambientSelect.value);
+    } else {
+      if(ambientAudio) ambientAudio.pause();
+      ambientPlaying = false;
+      ambientToggleBtn.textContent = '▶️';
+    }
+  });
+  ambientSelect.addEventListener('change', () => {
+    if(ambientPlaying) {
+      playAmbientSound(ambientSelect.value);
+    }
+  });
+
+  // Settings Handlers
+  themeSelect.addEventListener('change', e => {
+    setTheme(e.target.value);
+  });
+  equalizerSliders.forEach(slider => {
+    slider.addEventListener('input', updateEqualizer);
+  });
+  hifiToggle.addEventListener('change', e => {
+    toggleHiFi(e.target.checked);
+  });
+  visualizerToggleHome.addEventListener('change', e => {
+    visualizerContainer.style.display = e.target.checked ? 'block' : 'none';
+  });
+  visualizerColorPickerHome.addEventListener('input', e => {
+    visualizerColor = e.target.value;
+    visualizerColorPickerHome.value = visualizerColor;
+  });
+
+  // Theme changes
+  function setTheme(theme) {
+    // Reset to default first
+    document.body.style.background = '';
+    document.body.style.color = '';
+    document.documentElement.style.setProperty('--color-bg', '');
+    document.documentElement.style.setProperty('--color-beige', '');
+    document.documentElement.style.setProperty('--color-text', '');
+    document.documentElement.style.setProperty('--color-accent', '');
+    document.documentElement.style.setProperty('--color-accent-dark', '');
+    switch(theme) {
+      case 'dark':
+        document.body.style.background = '#1a1a1a';
+        document.body.style.color = '#d0c8b0';
+        document.documentElement.style.setProperty('--color-beige', '#1a1a1a');
+        document.documentElement.style.setProperty('--color-text', '#d0c8b0');
+        document.documentElement.style.setProperty('--color-accent', '#996633');
+        document.documentElement.style.setProperty('--color-accent-dark', '#664422');
+        break;
+      case 'blue-gray':
+        document.body.style.background = '#e0e7ef';
+        document.body.style.color = '#294964';
+        document.documentElement.style.setProperty('--color-beige', '#e0e7ef');
+        document.documentElement.style.setProperty('--color-text', '#294964');
+        document.documentElement.style.setProperty('--color-accent', '#547aa5');
+        document.documentElement.style.setProperty('--color-accent-dark', '#38527a');
+        break;
+      case 'retro':
+        document.body.style.background = '#f7ebe1';
+        document.body.style.color = '#7a4a00';
+        document.documentElement.style.setProperty('--color-beige', '#f7ebe1');
+        document.documentElement.style.setProperty('--color-text', '#7a4a00');
+        document.documentElement.style.setProperty('--color-accent', '#e67e22');
+        document.documentElement.style.setProperty('--color-accent-dark', '#b25800');
+        break;
+      case 'beige':
+      default:
+        document.body.style.background = 'var(--color-beige)';
+        document.body.style.color = 'var(--color-text)';
+        document.documentElement.style.setProperty('--color-beige', '#f5f0e6');
+        document.documentElement.style.setProperty('--color-text', '#4b3b2b');
+        document.documentElement.style.setProperty('--color-accent', '#a67b5b');
+        document.documentElement.style.setProperty('--color-accent-dark', '#7b5a3a');
+        break;
+    }
+  }
+  setTheme('beige');
+
+  // Hi-Fi toggle (simulate with volume boost on gain node)
+  function toggleHiFi(enabled) {
+    if(!gainNode) return;
+    gainNode.gain.value = enabled ? 1.5 : 1.0;
+  }
+
+  // PLAYLISTS MANAGEMENT
+  function savePlaylists() {
+    localStorage.setItem('radio-playlists', JSON.stringify(playlists));
+  }
+  function renderPlaylists() {
+    playlistsListDiv.innerHTML = '';
+    if(playlists.length === 0) {
+      playlistsListDiv.textContent = isLoggedIn ?
+        'No playlists yet. Create one!' :
+        'Login to manage your playlists.';
+      return;
+    }
+    playlists.forEach((plist, idx) => {
+      const div = document.createElement('div');
+      div.style.border = "1px solid var(--color-accent-dark)";
+      div.style.borderRadius = "10px";
+      div.style.padding = "8px";
+      div.style.marginBottom = "8px";
+      div.style.background = "var(--color-white)";
+      const title = document.createElement('h3');
+      title.textContent = plist.name;
+      div.appendChild(title);
+
+      const btnPlay = document.createElement('button');
+      btnPlay.textContent = '▶️ Play';
+      btnPlay.style.marginRight = '0.5rem';
+      btnPlay.addEventListener('click', () => {
+        startPlayback(plist.tracks.length ? plist.tracks : sampleTracks);
+      });
+      div.appendChild(btnPlay);
+
+      const btnEdit = document.createElement('button');
+      btnEdit.textContent = '✏️ Edit';
+      btnEdit.style.marginRight = '0.5rem';
+      btnEdit.addEventListener('click', () => {
+        editPlaylist(idx);
+      });
+      div.appendChild(btnEdit);
+
+      const btnDelete = document.createElement('button');
+      btnDelete.textContent = '🗑️ Delete';
+      btnDelete.addEventListener('click', () => {
+        if(confirm('Delete this playlist?')) {
+          playlists.splice(idx, 1);
+          savePlaylists();
+          renderPlaylists();
         }
+      });
+      div.appendChild(btnDelete);
 
-        // Initialize
-        loadDailyPlaylist();
-    </script>
+      playlistsListDiv.appendChild(div);
+    });
+  }
+  btnNewPlaylist.addEventListener('click', () => {
+    if(!isLoggedIn) {
+      alert('Please log in to create playlists!');
+      navigate('auth');
+      return;
+    }
+    const name = prompt('Enter new playlist name:');
+    if(name) {
+      const newP = {name, tracks: []};
+      playlists.push(newP);
+      savePlaylists();
+      renderPlaylists();
+    }
+  });
+  function editPlaylist(idx) {
+    if(!isLoggedIn) {
+      alert('Please log in to edit playlists!');
+      navigate('auth');
+      return;
+    }
+    const plist = playlists[idx];
+    let action = prompt(
+      `Editing "${plist.name}". Options:\n` +
+      `1: Add Track\n2: Remove Track\n3: Rename\n(Enter number or cancel)`
+    );
+    if(!action) return;
+    switch(action.trim()) {
+      case '1': {
+        // Add track - provide searchable list
+        const query = prompt('Search track title or artist to add:');
+        if(!query) return;
+        const found = sampleTracks.filter(t =>
+          t.title.toLowerCase().includes(query.toLowerCase()) ||
+          t.artist.toLowerCase().includes(query.toLowerCase())
+        );
+        if(found.length === 0) {
+          alert('No matching tracks found.');
+          return;
+        }
+        const selection = prompt(
+          `Found ${found.length} tracks:\n` +
+          found.map((t,i) => `${i+1}: ${t.title} by ${t.artist}`).join('\n') +
+          '\nEnter number of track to add:');
+        const selIndex = parseInt(selection) - 1;
+        if(selIndex >= 0 && selIndex < found.length) {
+          plist.tracks.push(found[selIndex]);
+          savePlaylists();
+          renderPlaylists();
+        }
+        break;
+      }
+      case '2': {
+        // Remove Track
+        if(plist.tracks.length === 0) {
+          alert('No tracks in playlist to remove.');
+          return;
+        }
+        const selection = prompt(
+          `Tracks:\n` +
+          plist.tracks.map((t,i) => `${i+1}: ${t.title} by ${t.artist}`).join('\n') +
+          '\nEnter track number to remove:'
+        );
+        const selIndex = parseInt(selection) - 1;
+        if(selIndex >= 0 && selIndex < plist.tracks.length) {
+          plist.tracks.splice(selIndex, 1);
+          savePlaylists();
+          renderPlaylists();
+        }
+        break;
+      }
+      case '3': {
+        // Rename playlist
+        const newName = prompt('Enter new playlist name:', plist.name);
+        if(newName) {
+          plist.name = newName;
+          savePlaylists();
+          renderPlaylists();
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // Auth form
+  let authMode = 'signup'; // or 'login'
+  authToggle.addEventListener('click', () => {
+    if(authMode === 'signup') {
+      authMode = 'login';
+      authTitle.textContent = 'Log In';
+      authSubmitBtn.textContent = 'Log In';
+      authToggle.textContent = 'No account? Sign Up';
+    } else {
+      authMode = 'signup';
+      authTitle.textContent = 'Sign Up';
+      authSubmitBtn.textContent = 'Sign Up';
+      authToggle.textContent = 'Already have an account? Log In';
+    }
+  });
+  authForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const username = authUsername.value.trim();
+    const password = authPassword.value.trim();
+    if(username.length < 3 || password.length < 3) {
+      alert('Username and password must be at least 3 characters long');
+      return;
+    }
+    if(authMode === 'signup') {
+      // Save user (simple localStorage only)
+      const storedUser = loadUser();
+      if(storedUser && storedUser.username === username) {
+        alert('Username already exists! Please log in.');
+        return;
+      }
+      saveUser(username, password);
+      alert('User registered successfully! You can now log in.');
+      authToggle.click();
+    } else {
+      if(verifyUser(username, password)) {
+        logInUser(username);
+        alert('Logged in successfully!');
+        navigate('home');
+      } else {
+        alert('Invalid username or password.');
+      }
+    }
+  });
+
+  // Media controls events
+  btnPlayPause.addEventListener('click', togglePlayPause);
+  btnNext.addEventListener('click', playNextTrack);
+  btnPrev.addEventListener('click', playPrevTrack);
+  btnMute.addEventListener('click', toggleMute);
+  volumeSlider.addEventListener('input', (e) => {
+    const vol = parseFloat(e.target.value);
+    setVolume(vol);
+  });
+
+  // Timer events
+  timerToggle.addEventListener('click', toggleTimer);
+
+  // Initialize audio on page load
+  initAudio();
+  setupAudioContext();
+  updateEqualizer();
+  setVolume(1);
+
+  // Chat functionality (basic simulated AI interaction)
+  function addChatMessage(text, sender='ai') {
+    const msg = document.createElement('div');
+    msg.className = `message ${sender}`;
+    msg.textContent = text;
+    chatMessages.appendChild(msg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+  function addAICommentary(text) {
+    if(!aiChatOpen) return;
+    addChatMessage(text, 'ai');
+  }
+  chatHeader.addEventListener('click', () => {
+    aiChatOpen = !aiChatOpen;
+    chatContainer.classList.toggle('visible', aiChatOpen);
+    chatHeader.setAttribute('aria-expanded', aiChatOpen ? 'true' : 'false');
+  });
+  chatSendBtn.addEventListener('click', sendChat);
+  chatInput.addEventListener('keydown', e => {
+    if(e.key === 'Enter') {
+      sendChat();
+    }
+  });
+  function sendChat() {
+    const text = chatInput.value.trim();
+    if(!text) return;
+    addChatMessage(text, 'user');
+    chatInput.value = '';
+    // Simple AI reply simulation about current track or general responses
+    setTimeout(() => {
+      let reply = "I'm here to chat about music! 🎶";
+      if(currentTrackIndex >= 0 && playingQueue[currentTrackIndex]) {
+        const t = playingQueue[currentTrackIndex];
+        if(text.toLowerCase().includes('who') && text.toLowerCase().includes('artist')) {
+          reply = `The artist of this song is ${t.artist}. 🎤`;
+        } else if(text.toLowerCase().includes('song')) {
+          reply = `This song is "${t.title}" from the album "${t.album}". 📀`;
+        } else if(text.toLowerCase().includes('next')) {
+          reply = `The next track is ${playingQueue[currentTrackIndex + 1] ? playingQueue[currentTrackIndex + 1].title : 'none'}. ▶️`;
+        } else if(text.toLowerCase().includes('play')) {
+          reply = 'Use the play/pause buttons below to control the music! ⏯️';
+        }
+      } else {
+        if(text.toLowerCase().includes('hello')) reply = 'Hello! Welcome to your personalized radio. 🎧';
+      }
+      addChatMessage(reply, 'ai');
+    }, 1200);
+  }
+
+  // Visualizer
+  let visualizerColor = '#a67b5b';
+  function resizeCanvas() {
+    canvasWidth = visualizerContainer.clientWidth;
+    canvasHeight = visualizerContainer.clientHeight;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function drawVisualizer() {
+    if(!analyser || !visualizerToggleHome.checked) {
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      animationId = requestAnimationFrame(drawVisualizer);
+      return;
+    }
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    const barWidth = (canvasWidth / bufferLength) * 2.5;
+    let x = 0;
+    for(let i = 0; i < bufferLength; i++) {
+      // Frequency bar with tree leaf effect (greenish)
+      const barHeight = (dataArray[i] / 255) * canvasHeight;
+      const alpha = dataArray[i] / 255;
+      ctx.fillStyle = `rgba(166,123,91,${alpha})`;
+      ctx.fillRect(x, canvasHeight - barHeight, barWidth, barHeight);
+      x += barWidth + 1;
+    }
+    animationId = requestAnimationFrame(drawVisualizer);
+  }
+  drawVisualizer();
+
+  // Initialize playlist display
+  displayPlaylistOfDay();
+  displayTrendySongs();
+  renderPlaylists();
+
+  // Start theme from storage or default
+  const storedTheme = localStorage.getItem('radio-theme');
+  if(storedTheme) {
+    themeSelect.value = storedTheme;
+    setTheme(storedTheme);
+  }
+  themeSelect.addEventListener('change', () => {
+    localStorage.setItem('radio-theme', themeSelect.value);
+  });
+  // On nav playlist click go to playlists
+  navButtons.playlists.addEventListener('click', () => renderPlaylists());
+
+  // Accessibility: focus styles for nav buttons keyboard users
+  document.querySelectorAll('nav button, #media-controls button, #ambient-toggle, #timer-toggle, #btn-new-playlist').forEach(btn => {
+    btn.addEventListener('keydown', e => {
+      if(e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        btn.click();
+      }
+    });
+  });
+
+  // Check previous logged in user
+  checkLoggedIn();
+
+  // Search input handler
+  searchInput.addEventListener('keydown', async e => {
+    if(e.key === 'Enter') {
+      const val = searchInput.value.trim();
+      if(!val) return;
+      if(isYouTubePlaylistUrl(val)) {
+        addAICommentary('Detected YouTube playlist link, loading songs... ⏳');
+        const tracks = await fetchYouTubePlaylistTracks(val);
+        if(tracks.length) {
+          addAICommentary(`Loaded ${tracks.length} tracks from YouTube playlist. Starting playback. ▶️`);
+          startPlayback(tracks);
+          searchInput.value = '';
+        } else {
+          alert('Could not load tracks from YouTube playlist.');
+        }
+      } else {
+        // Search in sampleTracks and trendyTracks combined
+        const allTracks = [...sampleTracks, ...trendyTracks];
+        const results = allTracks.filter(t => 
+          t.title.toLowerCase().includes(val.toLowerCase()) ||
+          t.artist.toLowerCase().includes(val.toLowerCase()) ||
+          t.album.toLowerCase().includes(val.toLowerCase())
+        );
+        if(results.length === 0) {
+          alert('No matching songs found.');
+          return;
+        }
+        startPlayback(results);
+      }
+    }
+  });
+
+})();
+</script>
 </body>
 </html>
+
